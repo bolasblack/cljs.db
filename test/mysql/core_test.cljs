@@ -70,4 +70,109 @@
 
      (done))))
 
+(deftest with-transaction*
+  (ct/async
+   done
+   (ua/go-let [method-args {:beginTransaction []
+                            :commit []
+                            :rollback []
+                            :callback []
+                            :execute []}
+               next-method-cb-args (volatile! method-args)
+               catched-method-args (volatile! method-args)
+               catched-error (volatile! method-args)
+               reset-all-info (fn []
+                                (vreset! next-method-cb-args method-args)
+                                (vreset! catched-method-args method-args)
+                                (vreset! catched-error method-args))
+               gen-fake-method (fn [name]
+                                 (fn [& [cb :as args]]
+                                   (vswap! catched-method-args
+                                           (fn [catched-method-args]
+                                             (update catched-method-args name #(conj % args))))
+                                   (try
+                                     (if (= :execute name)
+                                       (apply (nth args 2) (name @next-method-cb-args))
+                                       (apply cb (name @next-method-cb-args)))
+                                     (catch js/Error err
+                                       (js/console.error err)
+                                       (vswap! catched-error
+                                               (fn [catched-error]
+                                                 (update catched-error name #(conj % args))))))))
+               fake-error (js/Error. "some error")
+               fake-conn (js-obj "beginTransaction" (gen-fake-method :beginTransaction)
+                                 "commit" (gen-fake-method :commit)
+                                 "rollback" (gen-fake-method :rollback)
+                                 "execute" (gen-fake-method :execute))
+
+               _ (vswap! next-method-cb-args
+                         (fn [next-method-cb-args]
+                           (assoc next-method-cb-args :beginTransaction [fake-error])))
+               resp1 (ua/<! (c/with-transaction* {:conn fake-conn :policy :error}
+                              (fn []
+                                (vswap! catched-method-args
+                                        #(update % :callback (fn [args] (conj args []))))
+                                (c/exec! fake-conn "hello world"))))
+               _ (is (= 1 (count (:beginTransaction @catched-method-args)))
+                     "beginTransaction should be called")
+               _ (is (= 0 (count (:commit @catched-method-args)))
+                     "commit should not be called")
+               _ (is (= 0 (count (:rollback @catched-method-args)))
+                     "rollback should be called")
+               _ (is (= 0 (count (:callback @catched-method-args)))
+                     "callback should not be called")
+               _ (is (= 0 (count (:execute @catched-method-args)))
+                     "execute should not be called")
+               _ (is (identical? fake-error resp1))
+               _ (reset-all-info)
+
+               _ (vswap! next-method-cb-args
+                         (fn [next-method-cb-args]
+                           (assoc next-method-cb-args :execute [fake-error])))
+               resp2 (ua/<! (c/with-transaction* {:conn fake-conn :policy :error}
+                              (fn []
+                                (vswap! catched-method-args
+                                        #(update % :callback (fn [args] (conj args []))))
+                                (c/exec! fake-conn "hello world"))))
+               _ (is (= 1 (count (:beginTransaction @catched-method-args)))
+                     "beginTransaction should be called")
+               _ (is (= 0 (count (:commit @catched-method-args)))
+                     "commit should not be called")
+               _ (is (= 1 (count (:rollback @catched-method-args)))
+                     "rollback should be called")
+               _ (is (= 1 (count (:callback @catched-method-args)))
+                     "callback should be called")
+               _ (is (= 1 (count (:execute @catched-method-args)))
+                     "execute should be called")
+               _ (is (identical? fake-error resp2))
+               _ (reset-all-info)
+
+               _ (vswap! next-method-cb-args
+                         (fn [next-method-cb-args]
+                           (assoc next-method-cb-args :execute [#js [] #js []])))
+               resp3 (ua/<! (c/with-transaction* {:conn fake-conn :policy :error}
+                              (fn []
+                                (vswap! catched-method-args
+                                        #(update % :callback (fn [args] (conj args []))))
+                                (c/exec! fake-conn "hello world"))))
+               _ (is (= 1 (count (:beginTransaction @catched-method-args)))
+                     "beginTransaction should be called")
+               _ (is (= 1 (count (:commit @catched-method-args)))
+                     "commit should be called")
+               _ (is (= 0 (count (:rollback @catched-method-args)))
+                     "rollback should not be called")
+               _ (is (= 1 (count (:callback @catched-method-args)))
+                     "callback should be called")
+               _ (is (= 1 (count (:execute @catched-method-args)))
+                     "execute should be called")
+               _ (is (nil? resp3))
+               _ (reset-all-info)]
      (done))))
+
+(deftest with-transaction
+  (is (= nil
+         (macroexpand-1 '(c/with-transaction {:conn fake-conn}))))
+  (is (= '(mysql.core/with-transaction* {:conn fake-conn}
+            (clojure.core/fn []
+              (utils.async/go (ua/<! (c/exec! "hello")))))
+         (macroexpand-1 '(c/with-transaction {:conn fake-conn} (ua/<! (c/exec! "hello")))))))
