@@ -47,7 +47,7 @@
                resp2 (ua/<! (c/exec! fake-conn1 "sql string"))
                fake-conn2 (js-obj "execute" (fn [& [_ _ callback :as args]]
                                               (vswap! fake-conn-args #(conj % args))
-                                              (callback nil #js [#js {:id 1} #js {:id 2}] #js {:fake-fields true})))
+                                              (callback nil #js [#js {:id 1} #js {:id 2}] #js [#js {:fake-fields true}])))
                resp3 (ua/<! (c/exec! fake-conn2 {:sql "sql string" :timeout 5000} ["sql args1" :sql-args2]))]
      (is (= 3 (count @fake-conn-args)))
 
@@ -64,10 +64,9 @@
      (let [args (nth @fake-conn-args 2)]
        (is (js-equal #js {:sql "sql string" :timeout 5000} (first args)))
        (is (js-equal #js ["sql args1" "sql-args2"] (second args))))
-     (is (= {:rows [{:id 1} {:id 2}]
-             :fields {:fake-fields true}}
-            resp3))
-
+     (is (= [{:id 1} {:id 2}] (:rows resp3)))
+     (is (= 1 (count (:fields resp3))))
+     (is (js-equal #js {:fake-fields true} (first (:fields resp3))))
      (done))))
 
 (deftest with-transaction*

@@ -5,7 +5,8 @@
             ["lodash.isobjectlike" :as is-object-like]
             [cljs.core.async :as async]
             [utils.core :as uc :include-macros true]
-            [utils.async :as ua :include-macros true]))
+            [utils.async :as ua :include-macros true]
+            [utils.seq :as useq]))
 
 (defn- normalize->clj [a & opts]
   (-> (js/JSON.stringify a)
@@ -82,9 +83,17 @@
   (let [chan (async/chan)]
     (.execute conn (clj->js query) (clj->js (or args []))
               (fn [err _rows _fields]
-                (if err
+                (cond
+                  err
                   (async/put! chan err #(async/close! chan))
+
+                  (nil? _fields)
+                  (async/put! chan {:resultHeader _rows :rows nil :fields nil}
+                              #(async/close! chan))
+
+                  :else
                   (let [rows (normalize->clj _rows :keywordize-keys true)
-                        fields (normalize->clj _fields :keywordize-keys true)]
-                    (async/put! chan {:rows rows :fields fields} #(async/close! chan))))))
+                        fields (useq/js->seq _fields)]
+                    (async/put! chan {:resultHeader nil :rows rows :fields fields}
+                                #(async/close! chan))))))
     chan))
