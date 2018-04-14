@@ -1,4 +1,4 @@
-(ns mysql.core
+(ns db.mysql
   (:require [utils.async :as ua :include-macros true]))
 
 (defmacro with-transaction

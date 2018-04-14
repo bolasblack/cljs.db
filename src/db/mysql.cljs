@@ -1,6 +1,6 @@
-(ns mysql.core
+(ns db.mysql
   (:require-macros [cljs.core.async.macros :refer [go]]
-                   [mysql.core])
+                   [db.mysql])
   (:require ["mysql2" :as m]
             ["lodash.isobjectlike" :as is-object-like]
             [cljs.core.async :as async]
@@ -33,18 +33,18 @@
   (ua/go-let [{:keys [conn policy]}
               (if (map? opts) opts {:conn opts})
 
-              transaction-statue
+              transaction-status
               (volatile! :idle)
 
               res
               (ua/<! (ua/go-try
                       (ua/<? (ua/denodify.. conn -beginTransaction))
-                      (vreset! transaction-statue :started)
+                      (vreset! transaction-status :started)
                       (ua/<<? (cb) :policy policy)
                       (ua/<? (ua/denodify.. conn -commit))
-                      (vreset! transaction-statue :finished)))]
+                      (vreset! transaction-status :finished)))]
     (when (uc/error? res)
-      (when (= :started @transaction-statue)
+      (when (= :started @transaction-status)
         (ua/<! (ua/denodify.. conn -rollback)))
       (if (ua/packed-error? res)
         (ua/unpack-error res :policy policy)

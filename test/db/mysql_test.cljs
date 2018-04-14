@@ -1,22 +1,22 @@
-(ns mysql.core-test
+(ns db.mysql-test
   (:require
    [pjstadig.humane-test-output]
    [cljs.test :as ct :refer [deftest testing is]]
    [utils.async :as ua]
-   ["mysql2" :as m]
-   [mysql.core :as c]
+   ["mysql2" :as mysql]
+   [db.mysql :as m]
    ["lodash.isequal" :as js-equal]))
 
 (deftest conn
-  (with-redefs [m/createConnection (fn [& args] args)]
-    (is (= '("conn string") (c/conn "conn string")))
+  (with-redefs [mysql/createConnection (fn [& args] args)]
+    (is (= '("conn string") (m/conn "conn string")))
     (is (= [{"conn-param1" 1 "conn-param2" 2}]
-           (js->clj (c/conn :conn-param1 1 :conn-param2 2))))))
+           (js->clj (m/conn :conn-param1 1 :conn-param2 2))))))
 
 (deftest close!
   (let [fake-conn-called (volatile! false)
         fake-conn #js {:close #(vreset! fake-conn-called true)}]
-    (c/close! fake-conn)
+    (m/close! fake-conn)
     (is @fake-conn-called)))
 
 (deftest end!
@@ -26,10 +26,10 @@
                fake-conn-call-time (volatile! 0)
                fake-conn1 (js-obj "end" #(do (vswap! fake-conn-call-time inc)
                                              (%)))
-               resp1 (ua/<! (c/end! fake-conn1))
+               resp1 (ua/<! (m/end! fake-conn1))
                fake-conn2 (js-obj "end" #(do (vswap! fake-conn-call-time inc)
                                              (% fake-error)))
-               resp2 (ua/<! (c/end! fake-conn2))]
+               resp2 (ua/<! (m/end! fake-conn2))]
      (is (= 2 @fake-conn-call-time))
      (is (= :ok resp1))
      (is (= fake-error resp2))
@@ -43,12 +43,12 @@
                fake-conn1 (js-obj "execute" (fn [& [_ _ callback :as args]]
                                               (vswap! fake-conn-args #(conj % args))
                                               (callback fake-error)))
-               resp1 (ua/<! (c/exec! fake-conn1 "sql string" ["sql args1" :sql-args2]))
-               resp2 (ua/<! (c/exec! fake-conn1 "sql string"))
+               resp1 (ua/<! (m/exec! fake-conn1 "sql string" ["sql args1" :sql-args2]))
+               resp2 (ua/<! (m/exec! fake-conn1 "sql string"))
                fake-conn2 (js-obj "execute" (fn [& [_ _ callback :as args]]
                                               (vswap! fake-conn-args #(conj % args))
                                               (callback nil #js [#js {:id 1} #js {:id 2}] #js [#js {:fake-fields true}])))
-               resp3 (ua/<! (c/exec! fake-conn2 {:sql "sql string" :timeout 5000} ["sql args1" :sql-args2]))]
+               resp3 (ua/<! (m/exec! fake-conn2 {:sql "sql string" :timeout 5000} ["sql args1" :sql-args2]))]
      (is (= 3 (count @fake-conn-args)))
 
      (let [args (first @fake-conn-args)]
@@ -107,11 +107,11 @@
                _ (vswap! next-method-cb-args
                          (fn [next-method-cb-args]
                            (assoc next-method-cb-args :beginTransaction [fake-error])))
-               resp1 (ua/<! (c/with-transaction* {:conn fake-conn :policy :error}
+               resp1 (ua/<! (m/with-transaction* {:conn fake-conn :policy :error}
                               (fn []
                                 (vswap! catched-method-args
                                         #(update % :callback (fn [args] (conj args []))))
-                                (c/exec! fake-conn "hello world"))))
+                                (m/exec! fake-conn "hello world"))))
                _ (is (= 1 (count (:beginTransaction @catched-method-args)))
                      "beginTransaction should be called")
                _ (is (= 0 (count (:commit @catched-method-args)))
@@ -128,11 +128,11 @@
                _ (vswap! next-method-cb-args
                          (fn [next-method-cb-args]
                            (assoc next-method-cb-args :execute [fake-error])))
-               resp2 (ua/<! (c/with-transaction* {:conn fake-conn :policy :error}
+               resp2 (ua/<! (m/with-transaction* {:conn fake-conn :policy :error}
                               (fn []
                                 (vswap! catched-method-args
                                         #(update % :callback (fn [args] (conj args []))))
-                                (c/exec! fake-conn "hello world"))))
+                                (m/exec! fake-conn "hello world"))))
                _ (is (= 1 (count (:beginTransaction @catched-method-args)))
                      "beginTransaction should be called")
                _ (is (= 0 (count (:commit @catched-method-args)))
@@ -149,11 +149,11 @@
                _ (vswap! next-method-cb-args
                          (fn [next-method-cb-args]
                            (assoc next-method-cb-args :execute [#js [] #js []])))
-               resp3 (ua/<! (c/with-transaction* {:conn fake-conn :policy :error}
+               resp3 (ua/<! (m/with-transaction* {:conn fake-conn :policy :error}
                               (fn []
                                 (vswap! catched-method-args
                                         #(update % :callback (fn [args] (conj args []))))
-                                (c/exec! fake-conn "hello world"))))
+                                (m/exec! fake-conn "hello world"))))
                _ (is (= 1 (count (:beginTransaction @catched-method-args)))
                      "beginTransaction should be called")
                _ (is (= 1 (count (:commit @catched-method-args)))
@@ -170,8 +170,8 @@
 
 (deftest with-transaction
   (is (= nil
-         (macroexpand-1 '(c/with-transaction {:conn fake-conn}))))
-  (is (= '(mysql.core/with-transaction* {:conn fake-conn}
+         (macroexpand-1 '(m/with-transaction {:conn fake-conn}))))
+  (is (= '(db.mysql/with-transaction* {:conn fake-conn}
             (clojure.core/fn []
-              (utils.async/go (ua/<! (c/exec! "hello")))))
-         (macroexpand-1 '(c/with-transaction {:conn fake-conn} (ua/<! (c/exec! "hello")))))))
+              (utils.async/go (ua/<! (m/exec! "hello")))))
+         (macroexpand-1 '(m/with-transaction {:conn fake-conn} (ua/<! (m/exec! "hello")))))))

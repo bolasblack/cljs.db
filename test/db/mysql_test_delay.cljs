@@ -1,4 +1,4 @@
-(ns mysql.core-test-delay
+(ns db.mysql-test-delay
   (:refer-clojure :exclude [uuid])
   (:require
    ["dotenv-safe/config"]
@@ -6,7 +6,7 @@
    [cljs.test :as ct :refer [deftest testing is]]
    [utils.core :as uc]
    [utils.async :as ua]
-   [mysql.core :as c]
+   [db.mysql :as m]
    ["mysql2/lib/constants/types" :as DBTypes]
    ["mysql2/lib/constants/field_flags" :as FieldFlags]
    ["lodash.isequal" :as js-equal]
@@ -17,7 +17,7 @@
       js/JSON.parse
       (js-delete "_buf")))
 
-(def conn (c/conn js/process.env.MYSQL_URL))
+(def conn (m/conn js/process.env.MYSQL_URL))
 
 (deftest exec!
   (ct/async
@@ -25,16 +25,16 @@
    (ua/go-let
      [bookname (uuid)
       res (ua/<! (ua/go-try-let
-                   [_ (ua/<? (c/exec! conn "DROP TABLE IF EXISTS Books"))
-                    _ (ua/<? (c/exec! conn "
+                   [_ (ua/<? (m/exec! conn "DROP TABLE IF EXISTS Books"))
+                    _ (ua/<? (m/exec! conn "
 CREATE TABLE Books (
   id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL
 )
 "))
-                    e1 (ua/<? (c/exec! conn "SELECT * FROM Books"))
-                    e2 (ua/<? (c/exec! conn (str "INSERT INTO Books (name) VALUE(\"" bookname "\")")))
-                    e3 (ua/<? (c/exec! conn "SELECT * FROM Books"))]
+                    e1 (ua/<? (m/exec! conn "SELECT * FROM Books"))
+                    e2 (ua/<? (m/exec! conn (str "INSERT INTO Books (name) VALUE(\"" bookname "\")")))
+                    e3 (ua/<? (m/exec! conn "SELECT * FROM Books"))]
                    [e1 e2 e3]))
       [e1 e2 e3] (if (uc/error? res)
                    (do (js/console.error res)
@@ -75,21 +75,21 @@ CREATE TABLE Books (
    (ua/go-let
      [bookname (uuid)
       fake-error (js/Error. "test error")
-      _ (ua/<? (c/exec! conn "DROP TABLE IF EXISTS Books"))
-      _ (ua/<? (c/exec! conn "
+      _ (ua/<? (m/exec! conn "DROP TABLE IF EXISTS Books"))
+      _ (ua/<? (m/exec! conn "
 CREATE TABLE Books (
   id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL
 )"))
       query-in-transaction (volatile! nil)
-      res (ua/<! (c/with-transaction* conn
+      res (ua/<! (m/with-transaction* conn
                    (fn []
                      (ua/go-try
-                      (ua/<? (c/exec! conn "SELECT * FROM Books"))
-                      (ua/<? (c/exec! conn (str "INSERT INTO Books (name) VALUE(\"" bookname "\")")))
-                      (vreset! query-in-transaction (ua/<? (c/exec! conn "SELECT * FROM Books")))
+                      (ua/<? (m/exec! conn "SELECT * FROM Books"))
+                      (ua/<? (m/exec! conn (str "INSERT INTO Books (name) VALUE(\"" bookname "\")")))
+                      (vreset! query-in-transaction (ua/<? (m/exec! conn "SELECT * FROM Books")))
                       (throw fake-error)))))
-      query-out-transaction (ua/<! (c/exec! conn "SELECT * FROM Books"))]
+      query-out-transaction (ua/<! (m/exec! conn "SELECT * FROM Books"))]
      (is (identical? fake-error res))
      (is (= bookname (:name (first (:rows @query-in-transaction)))))
      (is (= [] (:rows query-out-transaction)))
