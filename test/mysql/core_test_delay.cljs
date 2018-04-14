@@ -1,4 +1,5 @@
 (ns mysql.core-test-delay
+  (:refer-clojure :exclude [uuid])
   (:require
    ["dotenv-safe/config"]
    [pjstadig.humane-test-output]
@@ -8,7 +9,8 @@
    [mysql.core :as c]
    ["mysql2/lib/constants/types" :as DBTypes]
    ["mysql2/lib/constants/field_flags" :as FieldFlags]
-   ["lodash.isequal" :as js-equal]))
+   ["lodash.isequal" :as js-equal]
+   ["uuid/v4" :as uuid]))
 
 (defn normalize-field [o]
   (-> (js/JSON.stringify o)
@@ -21,16 +23,17 @@
   (ct/async
    done
    (ua/go-let
-     [res (ua/<! (ua/go-try-let
+     [bookname (uuid)
+      res (ua/<! (ua/go-try-let
                    [_ (ua/<? (c/exec! conn "DROP TABLE IF EXISTS Books"))
                     _ (ua/<? (c/exec! conn "
 CREATE TABLE Books (
   id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(30) NOT NULL
+  name VARCHAR(100) NOT NULL
 )
 "))
                     e1 (ua/<? (c/exec! conn "SELECT * FROM Books"))
-                    e2 (ua/<? (c/exec! conn "INSERT INTO Books (name) VALUE(\"Book1\")"))
+                    e2 (ua/<? (c/exec! conn (str "INSERT INTO Books (name) VALUE(\"" bookname "\")")))
                     e3 (ua/<? (c/exec! conn "SELECT * FROM Books"))]
                    [e1 e2 e3]))
       [e1 e2 e3] (if (uc/error? res)
@@ -58,10 +61,36 @@ CREATE TABLE Books (
      (is (nil? (:fields e2)))
      (is (= 1 (.-affectedRows (:resultHeader e2))))
 
-     (is (= [{:id 1 :name "Book1"}] (:rows e3)))
+     (is (= [{:id 1 :name bookname}] (:rows e3)))
      (is (= (count (:fields e1)) (count (:fields e3))))
      (is (js-equal (normalize-field (first (:fields e1))) (normalize-field (first (:fields e3)))))
      (is (js-equal (normalize-field (second (:fields e1))) (normalize-field (second (:fields e3)))))
      (is (nil? (:resultHeader e3)))
 
+     (done))))
+
+(deftest with-transaction*
+  (ct/async
+   done
+   (ua/go-let
+     [bookname (uuid)
+      fake-error (js/Error. "test error")
+      _ (ua/<? (c/exec! conn "DROP TABLE IF EXISTS Books"))
+      _ (ua/<? (c/exec! conn "
+CREATE TABLE Books (
+  id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL
+)"))
+      query-in-transaction (volatile! nil)
+      res (ua/<! (c/with-transaction* conn
+                   (fn []
+                     (ua/go-try
+                      (ua/<? (c/exec! conn "SELECT * FROM Books"))
+                      (ua/<? (c/exec! conn (str "INSERT INTO Books (name) VALUE(\"" bookname "\")")))
+                      (vreset! query-in-transaction (ua/<? (c/exec! conn "SELECT * FROM Books")))
+                      (throw fake-error)))))
+      query-out-transaction (ua/<! (c/exec! conn "SELECT * FROM Books"))]
+     (is (identical? fake-error res))
+     (is (= bookname (:name (first (:rows @query-in-transaction)))))
+     (is (= [] (:rows query-out-transaction)))
      (done))))

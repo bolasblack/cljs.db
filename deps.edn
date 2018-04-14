@@ -2,7 +2,7 @@
  :deps
  {c4605.utils/c4605.utils
   {:git/url "https://github.com/bolasblack/c4605.utils",
-   :sha "7d2203242ed6b12f979e8d8a6e4ab32c35ccdfae"},
+   :sha "52009ef8da882219a39a8a3688d7f0364d3aa3b6"},
   org.clojure/core.async {:mvn/version "0.4.474"}},
  :aliases
  {:test {:extra-deps {pjstadig/humane-test-output {:mvn/version "0.8.3"}}, :extra-paths ["test"]}}}
