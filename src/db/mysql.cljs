@@ -79,21 +79,24 @@
                    (async/put! chan :ok #(async/close! chan)))))
     chan))
 
-(defn exec! [conn query & [args]]
-  (let [chan (async/chan)]
-    (.execute conn (clj->js query) (clj->js (or args []))
-              (fn [err _rows _fields]
-                (cond
-                  err
-                  (async/put! chan err #(async/close! chan))
+(defn exec!
+  ([conn query]
+   (exec! conn query []))
+  ([conn query args]
+   (let [chan (async/chan)]
+     (.execute conn (clj->js query) (clj->js (or args []))
+               (fn [err _rows _fields]
+                 (cond
+                   err
+                   (async/put! chan err #(async/close! chan))
 
-                  (nil? _fields)
-                  (async/put! chan {:resultHeader _rows :rows nil :fields nil}
-                              #(async/close! chan))
+                   (nil? _fields)
+                   (async/put! chan {:resultHeader _rows :rows nil :fields nil}
+                               #(async/close! chan))
 
-                  :else
-                  (let [rows (normalize->clj _rows :keywordize-keys true)
-                        fields (useq/js->seq _fields)]
-                    (async/put! chan {:resultHeader nil :rows rows :fields fields}
-                                #(async/close! chan))))))
-    chan))
+                   :else
+                   (let [rows (normalize->clj _rows :keywordize-keys true)
+                         fields (useq/js->seq _fields)]
+                     (async/put! chan {:resultHeader nil :rows rows :fields fields}
+                                 #(async/close! chan))))))
+     chan)))
